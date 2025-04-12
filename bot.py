@@ -251,7 +251,15 @@ class FriendCommands(commands.Cog):
         description="Отправить уведомление о голосовом вызове всем друзьям",
         guild_ids=GUILD_IDS
     )
-    async def callvoice(self, inter: disnake.ApplicationCommandInteraction):
+    async def callvoice(
+        self, 
+        inter: disnake.ApplicationCommandInteraction,
+        режим: str = commands.Param(
+            description="Режим оповещения: всем друзьям или только онлайн",
+            choices=["Онлайн", "Все"],
+            default="Онлайн"
+        )
+    ):
         user_id = str(inter.author.id)
         
         # Получение списка друзей пользователя
@@ -277,11 +285,34 @@ class FriendCommands(commands.Cog):
         if inter.author.voice:
             voice_channel = inter.author.voice.channel
         
-        # Отправка уведомлений всем друзьям
+        # Отправка уведомлений друзьям в зависимости от выбранного режима
         sent_count = 0
+        skipped_count = 0
+        
+        await inter.response.defer(ephemeral=True)
+        
         for friend_id in self.friend_data[user_id]:
             try:
                 friend = await bot.fetch_user(int(friend_id))
+                
+                # Проверка статуса пользователя, если выбран режим "Онлайн"
+                if режим == "Онлайн":
+                    # Получаем объект участника на общих серверах
+                    online_status = False
+                    
+                    # Проверяем все общие серверы с пользователем
+                    for guild in bot.guilds:
+                        member = guild.get_member(int(friend_id))
+                        if member:
+                            # Проверяем статус: в сети, неактивен, не беспокоить или стримит
+                            if member.status != disnake.Status.offline:
+                                online_status = True
+                                break
+                    
+                    # Если пользователь не онлайн, пропускаем его
+                    if not online_status:
+                        skipped_count += 1
+                        continue
                 
                 # Создание представления с кнопкой голосового канала, если пользователь находится в голосовом канале
                 view = None
@@ -302,7 +333,11 @@ class FriendCommands(commands.Cog):
                 print(f"Не удалось отправить сообщение пользователю {friend_id}: {e}")
                 continue
         
-        await inter.response.send_message(f"Уведомление о голосовом вызове отправлено {sent_count} друзьям.", ephemeral=True)
+        # Отправка результата
+        if режим == "Онлайн":
+            await inter.edit_original_message(content=f"Уведомление о голосовом вызове отправлено {sent_count} друзьям, которые сейчас онлайн. {skipped_count} пользователей пропущено (не в сети).")
+        else:
+            await inter.edit_original_message(content=f"Уведомление о голосовом вызове отправлено {sent_count} друзьям (всем в списке).")
 
 # Обработка ошибок
 @bot.event
