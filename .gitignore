@@ -1,0 +1,25 @@
+# Токен и данные
+config.py
+friends_data.json
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Виртуальное окружение
+venv/
+env/
+ENV/
+
+# Логи
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Окружение
+.env 
