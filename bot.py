@@ -5,16 +5,26 @@ import os
 from typing import List
 from config import TOKEN, DATA_FILE
 
+# Попытка импорта ID серверов из config.py
+try:
+    from config import GUILD_IDS
+except ImportError:
+    GUILD_IDS = []  # Если не определены, используем пустой список
+
 # Инициализация бота с синхронизацией команд
 intents = disnake.Intents.default()
 intents.members = True
 intents.message_content = True
+
+# Использование CommandSyncFlags вместо устаревших параметров
+command_sync_flags = commands.CommandSyncFlags.default()
+command_sync_flags.sync_commands = True
+command_sync_flags.sync_commands_debug = True
+
 bot = commands.Bot(
     command_prefix="/", 
-    intents=intents, 
-    test_guilds=[],  # Добавьте ID ваших серверов сюда для быстрой синхронизации команд
-    sync_commands=True,
-    sync_commands_debug=True
+    intents=intents,
+    command_sync_flags=command_sync_flags
 )
 
 # Управление данными о друзьях
@@ -31,7 +41,22 @@ def save_friend_data(data):
 # Обработчики событий
 @bot.event
 async def on_ready():
-    print(f"Бот готов к работе! Вход выполнен как {bot.user}")
+    print(f"==========================================")
+    print(f"Бот {bot.user} успешно подключен к Discord!")
+    print(f"ID бота: {bot.user.id}")
+    print(f"Количество серверов: {len(bot.guilds)}")
+    for guild in bot.guilds:
+        print(f"- {guild.name} (ID: {guild.id})")
+    print(f"==========================================")
+    print(f"Используйте Ctrl+C для остановки бота")
+    
+    # Установка статуса бота
+    await bot.change_presence(
+        activity=disnake.Activity(
+            type=disnake.ActivityType.listening,
+            name="/friendhelp"
+        )
+    )
 
 # Группа команд для управления друзьями
 class FriendCommands(commands.Cog):
@@ -45,7 +70,9 @@ class FriendCommands(commands.Cog):
     
     @commands.slash_command(
         name="friendhelp",
-        description="Показывает информацию о командах для управления друзьями"
+        description="Показывает информацию о командах для управления друзьями",
+        dm_permission=True,
+        guild_ids=GUILD_IDS
     )
     async def friendhelp(self, inter: disnake.ApplicationCommandInteraction):
         embed = disnake.Embed(
@@ -87,7 +114,9 @@ class FriendCommands(commands.Cog):
     
     @commands.slash_command(
         name="addfriend",
-        description="Добавить пользователя в список друзей"
+        description="Добавить пользователя в список друзей",
+        dm_permission=False,
+        guild_ids=GUILD_IDS
     )
     async def addfriend(
         self, 
@@ -114,7 +143,9 @@ class FriendCommands(commands.Cog):
     
     @commands.slash_command(
         name="removefriend",
-        description="Удалить пользователя из списка друзей"
+        description="Удалить пользователя из списка друзей",
+        dm_permission=False,
+        guild_ids=GUILD_IDS
     )
     async def removefriend(self, inter: disnake.ApplicationCommandInteraction):
         user_id = str(inter.author.id)
@@ -173,10 +204,19 @@ class FriendCommands(commands.Cog):
                     await inter.response.send_message("Пользователь удален из вашего списка друзей.", ephemeral=True)
             else:
                 await inter.response.send_message("Пользователь не найден в вашем списке друзей.", ephemeral=True)
+
+    # Общий обработчик взаимодействий с компонентами интерфейса
+    @commands.Cog.listener("on_button_click")
+    async def on_button_click(self, inter: disnake.MessageInteraction):
+        # Обрабатываем различные кнопки по их custom_id
+        if inter.component.custom_id.startswith("voice_"):
+            await inter.response.send_message("Перенаправление в голосовой канал...", ephemeral=True)
     
     @commands.slash_command(
         name="friendlist",
-        description="Показать список друзей"
+        description="Показать список друзей",
+        dm_permission=True,
+        guild_ids=GUILD_IDS
     )
     async def friendlist(self, inter: disnake.ApplicationCommandInteraction):
         user_id = str(inter.author.id)
@@ -212,7 +252,9 @@ class FriendCommands(commands.Cog):
     
     @commands.slash_command(
         name="callvoice",
-        description="Отправить уведомление о голосовом вызове всем друзьям"
+        description="Отправить уведомление о голосовом вызове всем друзьям",
+        dm_permission=False,
+        guild_ids=GUILD_IDS
     )
     async def callvoice(self, inter: disnake.ApplicationCommandInteraction):
         user_id = str(inter.author.id)
@@ -266,6 +308,27 @@ class FriendCommands(commands.Cog):
                 continue
         
         await inter.response.send_message(f"Уведомление о голосовом вызове отправлено {sent_count} друзьям.", ephemeral=True)
+
+# Обработка ошибок
+@bot.event
+async def on_slash_command_error(inter: disnake.ApplicationCommandInteraction, error):
+    if isinstance(error, commands.errors.CommandOnCooldown):
+        await inter.response.send_message(
+            f"Команда на перезарядке. Попробуйте снова через {error.retry_after:.1f} секунд.",
+            ephemeral=True
+        )
+    elif isinstance(error, commands.errors.MissingPermissions):
+        await inter.response.send_message(
+            "У вас недостаточно прав для выполнения этой команды.",
+            ephemeral=True
+        )
+    else:
+        # Логирование других ошибок
+        print(f"Ошибка при выполнении команды: {error}")
+        await inter.response.send_message(
+            "Произошла ошибка при выполнении команды. Попробуйте позже или обратитесь к администратору.",
+            ephemeral=True
+        )
 
 # Регистрация когов
 bot.add_cog(FriendCommands(bot))
