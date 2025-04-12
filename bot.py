@@ -71,7 +71,6 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="friendhelp",
         description="Показывает информацию о командах для управления друзьями",
-        contexts=[disnake.CommandContexts.GUILD, disnake.CommandContexts.BOT_DM, disnake.CommandContexts.PRIVATE_CHANNEL],
         guild_ids=GUILD_IDS
     )
     async def friendhelp(self, inter: disnake.ApplicationCommandInteraction):
@@ -115,7 +114,6 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="addfriend",
         description="Добавить пользователя в список друзей",
-        contexts=[disnake.CommandContexts.GUILD],
         guild_ids=GUILD_IDS
     )
     async def addfriend(
@@ -144,7 +142,6 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="removefriend",
         description="Удалить пользователя из списка друзей",
-        contexts=[disnake.CommandContexts.GUILD],
         guild_ids=GUILD_IDS
     )
     async def removefriend(self, inter: disnake.ApplicationCommandInteraction):
@@ -215,7 +212,6 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="friendlist",
         description="Показать список друзей",
-        contexts=[disnake.CommandContexts.GUILD, disnake.CommandContexts.BOT_DM, disnake.CommandContexts.PRIVATE_CHANNEL],
         guild_ids=GUILD_IDS
     )
     async def friendlist(self, inter: disnake.ApplicationCommandInteraction):
@@ -253,7 +249,6 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="callvoice",
         description="Отправить уведомление о голосовом вызове всем друзьям",
-        contexts=[disnake.CommandContexts.GUILD],
         guild_ids=GUILD_IDS
     )
     async def callvoice(self, inter: disnake.ApplicationCommandInteraction):
