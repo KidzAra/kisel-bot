@@ -71,7 +71,7 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="friendhelp",
         description="Показывает информацию о командах для управления друзьями",
-        dm_permission=True,
+        contexts=[disnake.CommandContexts.GUILD, disnake.CommandContexts.BOT_DM, disnake.CommandContexts.PRIVATE_CHANNEL],
         guild_ids=GUILD_IDS
     )
     async def friendhelp(self, inter: disnake.ApplicationCommandInteraction):
@@ -115,7 +115,7 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="addfriend",
         description="Добавить пользователя в список друзей",
-        dm_permission=False,
+        contexts=[disnake.CommandContexts.GUILD],
         guild_ids=GUILD_IDS
     )
     async def addfriend(
@@ -144,7 +144,7 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="removefriend",
         description="Удалить пользователя из списка друзей",
-        dm_permission=False,
+        contexts=[disnake.CommandContexts.GUILD],
         guild_ids=GUILD_IDS
     )
     async def removefriend(self, inter: disnake.ApplicationCommandInteraction):
@@ -215,7 +215,7 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="friendlist",
         description="Показать список друзей",
-        dm_permission=True,
+        contexts=[disnake.CommandContexts.GUILD, disnake.CommandContexts.BOT_DM, disnake.CommandContexts.PRIVATE_CHANNEL],
         guild_ids=GUILD_IDS
     )
     async def friendlist(self, inter: disnake.ApplicationCommandInteraction):
@@ -253,7 +253,7 @@ class FriendCommands(commands.Cog):
     @commands.slash_command(
         name="callvoice",
         description="Отправить уведомление о голосовом вызове всем друзьям",
-        dm_permission=False,
+        contexts=[disnake.CommandContexts.GUILD],
         guild_ids=GUILD_IDS
     )
     async def callvoice(self, inter: disnake.ApplicationCommandInteraction):
@@ -275,7 +275,7 @@ class FriendCommands(commands.Cog):
         embed.set_footer(text="Если ты видишь это сообщение значит пользователь добавил тебя в список друзей, теперь он может вызывать всех своих друзей в войс одной командой. Что бы тоже использовать эту функцию используй команду /friendhelp")
         
         # Добавление изображения напитка справа, как показано в примере
-        embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1234567890/1234567890/drink.png")  # Замените на реальный URL изображения напитка
+        embed.set_thumbnail(url="https://media.discordapp.net/attachments/1341271551483314230/1360642059408642048/7sQDreU.png?ex=67fbdc2a&is=67fa8aaa&hm=b128533f075bc0293e715c2ee38e723ed58e9fe3e456ad92def6e3113bfac18b&=&width=1024&height=1024")  # Предоставленное изображение напитка
         
         # Проверка, находится ли пользователь в голосовом канале
         voice_channel = None
