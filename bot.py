@@ -15,6 +15,7 @@ except ImportError:
 intents = disnake.Intents.default()
 intents.members = True
 intents.message_content = True
+intents.presences = True  # Для получения информации о статусах пользователей
 
 # Использование CommandSyncFlags вместо устаревших параметров
 command_sync_flags = commands.CommandSyncFlags.default()
@@ -291,6 +292,20 @@ class FriendCommands(commands.Cog):
         
         await inter.response.defer(ephemeral=True)
         
+        # Предварительная проверка статусов всех пользователей для отладки
+        status_info = []
+        if режим == "Онлайн":
+            for guild in bot.guilds:
+                status_info.append(f"Сервер: {guild.name} (ID: {guild.id})")
+                for friend_id in self.friend_data[user_id]:
+                    try:
+                        member = guild.get_member(int(friend_id))
+                        if member:
+                            friend_name = member.name
+                            status_info.append(f"  - {friend_name} (ID: {friend_id}): {member.status}")
+                    except Exception as e:
+                        status_info.append(f"  - Ошибка получения информации о пользователе {friend_id}: {e}")
+        
         for friend_id in self.friend_data[user_id]:
             try:
                 friend = await bot.fetch_user(int(friend_id))
@@ -299,20 +314,28 @@ class FriendCommands(commands.Cog):
                 if режим == "Онлайн":
                     # Получаем объект участника на общих серверах
                     online_status = False
+                    status_debug = "не найден на общих серверах"
                     
                     # Проверяем все общие серверы с пользователем
                     for guild in bot.guilds:
                         member = guild.get_member(int(friend_id))
                         if member:
+                            # Вывод отладочной информации
+                            print(f"Проверка статуса {friend.name} (ID: {friend_id}) на сервере {guild.name}: {member.status}")
+                            
                             # Проверяем статус: в сети, неактивен, не беспокоить или стримит
-                            if member.status != disnake.Status.offline:
+                            if member.status == disnake.Status.online or member.status == disnake.Status.idle or member.status == disnake.Status.dnd or member.status == disnake.Status.streaming:
                                 online_status = True
+                                status_debug = f"в сети на сервере {guild.name} со статусом {member.status}"
                                 break
                     
                     # Если пользователь не онлайн, пропускаем его
                     if not online_status:
+                        print(f"Пропускаем {friend.name} (ID: {friend_id}): {status_debug}")
                         skipped_count += 1
                         continue
+                    else:
+                        print(f"Отправляем сообщение {friend.name} (ID: {friend_id}): {status_debug}")
                 
                 # Создание представления с кнопкой голосового канала, если пользователь находится в голосовом канале
                 view = None
@@ -335,7 +358,18 @@ class FriendCommands(commands.Cog):
         
         # Отправка результата
         if режим == "Онлайн":
-            await inter.edit_original_message(content=f"Уведомление о голосовом вызове отправлено {sent_count} друзьям, которые сейчас онлайн. {skipped_count} пользователей пропущено (не в сети).")
+            result_message = f"Уведомление о голосовом вызове отправлено {sent_count} друзьям, которые сейчас онлайн. {skipped_count} пользователей пропущено (не в сети)."
+            
+            # Добавляем отладочную информацию, если есть проблемы
+            if sent_count == 0 and skipped_count > 0:
+                # Ограничиваем количество строк в сообщении, чтобы не превысить лимит
+                debug_info = "\n\nОтладочная информация о статусах (до 15 строк):\n" + "\n".join(status_info[:15])
+                if len(status_info) > 15:
+                    debug_info += f"\n...и еще {len(status_info) - 15} строк"
+                
+                result_message += debug_info
+            
+            await inter.edit_original_message(content=result_message)
         else:
             await inter.edit_original_message(content=f"Уведомление о голосовом вызове отправлено {sent_count} друзьям (всем в списке).")
 
