@@ -110,6 +110,12 @@ class FriendCommands(commands.Cog):
             inline=False
         )
         
+        embed.add_field(
+            name="/whoisplaying",
+            value="Показывает, во что играют ваши друзья, сгруппированные по играм",
+            inline=False
+        )
+        
         await inter.response.send_message(embed=embed, ephemeral=True)
     
     @commands.slash_command(
@@ -372,6 +378,164 @@ class FriendCommands(commands.Cog):
             await inter.edit_original_message(content=result_message)
         else:
             await inter.edit_original_message(content=f"Уведомление о голосовом вызове отправлено {sent_count} друзьям (всем в списке).")
+
+    @commands.slash_command(
+        name="whoisplaying",
+        description="Показывает, во что играют ваши друзья, сгруппированные по играм",
+        guild_ids=GUILD_IDS
+    )
+    async def whoisplaying(self, inter: disnake.ApplicationCommandInteraction):
+        user_id = str(inter.author.id)
+        
+        # Получение списка друзей пользователя
+        if user_id not in self.friend_data or not self.friend_data[user_id]:
+            await inter.response.send_message("Ваш список друзей пуст.", ephemeral=True)
+            return
+        
+        await inter.response.defer(ephemeral=True)
+        
+        # Создаем словарь с играми и кто в них играет
+        # Ключ - название игры, значение - список друзей
+        games_dict = {}
+        online_friends = []  # Друзья в сети, но не играющие
+        offline_friends = []  # Друзья не в сети
+        
+        # Проходим по всем друзьям из списка
+        for friend_id in self.friend_data[user_id]:
+            try:
+                friend_user = await bot.fetch_user(int(friend_id))
+                friend_name = friend_user.name
+                friend_avatar = friend_user.display_avatar.url
+                
+                # Флаг, чтобы отслеживать, найден ли пользователь хотя бы на одном сервере
+                found_on_server = False
+                playing_game = False
+                
+                # Проверяем статус друга на всех серверах, где есть бот
+                for guild in bot.guilds:
+                    member = guild.get_member(int(friend_id))
+                    if member:
+                        found_on_server = True
+                        
+                        # Проверяем, в сети ли пользователь
+                        if member.status != disnake.Status.offline:
+                            # Проверяем, играет ли пользователь в игру
+                            if member.activity and (member.activity.type == disnake.ActivityType.playing or member.activity.type == disnake.ActivityType.streaming):
+                                game_name = member.activity.name
+                                playing_game = True
+                                
+                                # Добавляем игру и друга в словарь
+                                if game_name not in games_dict:
+                                    games_dict[game_name] = []
+                                
+                                games_dict[game_name].append({
+                                    "name": friend_name,
+                                    "id": friend_id,
+                                    "avatar": friend_avatar,
+                                    "status": str(member.status),
+                                    "activity_details": member.activity.details if hasattr(member.activity, "details") and member.activity.details else None
+                                })
+                                
+                                # Останавливаем цикл после нахождения играющего друга
+                                break
+                            else:
+                                # Если друг в сети, но не играет, добавляем в список онлайн
+                                online_friends.append({
+                                    "name": friend_name,
+                                    "id": friend_id,
+                                    "avatar": friend_avatar,
+                                    "status": str(member.status)
+                                })
+                                # Останавливаем цикл после нахождения друга в сети
+                                break
+                
+                # Если пользователь найден на сервере, но не играет и не в онлайн-списке
+                if found_on_server and not playing_game and not any(f["id"] == friend_id for f in online_friends):
+                    # Добавляем в список оффлайн
+                    offline_friends.append({
+                        "name": friend_name,
+                        "id": friend_id,
+                        "avatar": friend_avatar
+                    })
+                
+                # Если пользователь не найден ни на одном сервере
+                if not found_on_server:
+                    offline_friends.append({
+                        "name": friend_name,
+                        "id": friend_id,
+                        "avatar": friend_avatar
+                    })
+                
+            except Exception as e:
+                print(f"Ошибка при получении информации о пользователе {friend_id}: {e}")
+                continue
+        
+        # Создаем эмбед с результатами
+        embed = disnake.Embed(
+            title="Во что играют ваши друзья",
+            color=disnake.Color.blurple(),
+            description=f"Всего друзей: {len(self.friend_data[user_id])}" if self.friend_data[user_id] else "У вас нет друзей в списке."
+        )
+        
+        # Добавляем поля для каждой игры
+        if games_dict:
+            for game_name, players in games_dict.items():
+                # Формируем список игроков для данной игры
+                players_text = ""
+                for player in players:
+                    status_emoji = "🟢" if player["status"] == "online" else "🟡" if player["status"] == "idle" else "🔴" if player["status"] == "dnd" else "🟣" if player["status"] == "streaming" else "⚪"
+                    details = f" • {player['activity_details']}" if player["activity_details"] else ""
+                    players_text += f"{status_emoji} {player['name']}{details}\n"
+                
+                # Добавляем поле с названием игры и списком игроков
+                embed.add_field(
+                    name=f"🎮 {game_name} ({len(players)})",
+                    value=players_text,
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="🎮 Никто не играет",
+                value="В данный момент никто из ваших друзей не играет.",
+                inline=False
+            )
+        
+        # Добавляем поле с друзьями в сети, но не играющими
+        if online_friends:
+            online_text = ""
+            for friend in online_friends:
+                status_emoji = "🟢" if friend["status"] == "online" else "🟡" if friend["status"] == "idle" else "🔴" if friend["status"] == "dnd" else "🟣" if friend["status"] == "streaming" else "⚪"
+                online_text += f"{status_emoji} {friend['name']}\n"
+            
+            embed.add_field(
+                name=f"💻 В сети ({len(online_friends)})",
+                value=online_text,
+                inline=False
+            )
+        
+        # Добавляем поле с оффлайн друзьями (опциональное, можно ограничить)
+        if offline_friends and len(offline_friends) <= 10:  # Ограничиваем для компактности
+            offline_text = ""
+            for friend in offline_friends:
+                offline_text += f"⚫ {friend['name']}\n"
+            
+            embed.add_field(
+                name=f"💤 Не в сети ({len(offline_friends)})",
+                value=offline_text,
+                inline=False
+            )
+        elif offline_friends:
+            embed.add_field(
+                name=f"💤 Не в сети ({len(offline_friends)})",
+                value=f"Всего не в сети: {len(offline_friends)} друзей",
+                inline=False
+            )
+        
+        # Устанавливаем время обновления
+        embed.set_footer(text=f"Обновлено: {disnake.utils.utcnow().strftime('%d.%m.%Y %H:%M:%S')} UTC")
+        
+        # Отправляем эмбед
+        await inter.edit_original_message(embed=embed)
 
 # Обработка ошибок
 @bot.event
