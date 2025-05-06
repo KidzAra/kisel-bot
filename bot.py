@@ -2,8 +2,10 @@ import disnake
 from disnake.ext import commands
 import json
 import os
-from typing import List
-from config import TOKEN, DATA_FILE
+import time
+import random
+from typing import List, Dict, Any, Optional
+from config import TOKEN, DATA_FILE, SCORE_FILE
 
 # Попытка импорта ID серверов из config.py
 try:
@@ -39,7 +41,21 @@ def save_friend_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+# Управление данными о счетах пользователей
+def load_score_data():
+    if os.path.exists(SCORE_FILE):
+        with open(SCORE_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_score_data(data):
+    with open(SCORE_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
 # Обработчики событий
+# Словарь для отслеживания времени в голосовых каналах. Ключ - ID пользователя, значение - время входа
+voice_time_tracker = {}
+
 @bot.event
 async def on_ready():
     print(f"==========================================")
@@ -58,6 +74,44 @@ async def on_ready():
             name="/friendhelp"
         )
     )
+
+@bot.event
+async def on_voice_state_update(member: disnake.Member, before: disnake.VoiceState, after: disnake.VoiceState):
+    """Обработчик события изменения состояния голосового канала"""
+    user_id = str(member.id)
+    
+    # Пользователь вошел в голосовой канал
+    if before.channel is None and after.channel is not None:
+        voice_time_tracker[user_id] = time.time()
+    
+    # Пользователь вышел из голосового канала
+    elif before.channel is not None and (after.channel is None or after.channel != before.channel):
+        if user_id in voice_time_tracker:
+            enter_time = voice_time_tracker[user_id]
+            current_time = time.time()
+            minutes_in_voice = int((current_time - enter_time) // 60)  # Получаем количество минут
+            
+            if minutes_in_voice > 0:
+                # Загружаем данные о счетах
+                scores = load_score_data()
+                
+                # Обновляем счет пользователя
+                if user_id not in scores:
+                    scores[user_id] = 0
+                
+                scores[user_id] += minutes_in_voice
+                
+                # Сохраняем данные
+                save_score_data(scores)
+                
+                print(f"Пользователь {member.name} (ID: {user_id}) получил {minutes_in_voice} очков за {minutes_in_voice} минут в голосовом канале")
+            
+            # Удаляем запись о времени входа
+            del voice_time_tracker[user_id]
+    
+    # Если пользователь сменил канал, обновляем время входа
+    elif before.channel is not None and after.channel is not None and before.channel != after.channel:
+        voice_time_tracker[user_id] = time.time()
 
 # Группа команд для управления друзьями
 class FriendCommands(commands.Cog):
@@ -537,6 +591,310 @@ class FriendCommands(commands.Cog):
         # Отправляем эмбед
         await inter.edit_original_message(embed=embed)
 
+# Группа команд для управления счетами и магазином
+class ScoreCommands(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.score_data = load_score_data()
+        # Словарь для отслеживания покупок пользователей
+        self.purchases = {}
+    
+    def get_user_score(self, user_id: str) -> int:
+        """Получить счет пользователя"""
+        return self.score_data.get(str(user_id), 0)
+    
+    def has_made_purchase(self, user_id: str, purchase_type: str) -> bool:
+        """Проверить, совершил ли пользователь определенную покупку"""
+        if str(user_id) not in self.purchases:
+            return False
+        return purchase_type in self.purchases[str(user_id)]
+    
+    def add_purchase(self, user_id: str, purchase_type: str) -> None:
+        """Добавить запись о покупке пользователя"""
+        if str(user_id) not in self.purchases:
+            self.purchases[str(user_id)] = []
+        
+        if purchase_type not in self.purchases[str(user_id)]:
+            self.purchases[str(user_id)].append(purchase_type)
+    
+    @commands.slash_command(
+        name="score",
+        description="Показать ваш текущий счет",
+        guild_ids=GUILD_IDS
+    )
+    async def score(self, inter: disnake.ApplicationCommandInteraction):
+        """Команда для просмотра своего счета"""
+        user_id = str(inter.author.id)
+        user_score = self.get_user_score(user_id)
+        
+        embed = disnake.Embed(
+            title="Ваш счет",
+            description=f"У вас {user_score} очков",
+            color=disnake.Color.green()
+        )
+        
+        await inter.response.send_message(embed=embed, ephemeral=True)
+    
+    @commands.slash_command(
+        name="addscore",
+        description="Добавить очки пользователю (только для администраторов)",
+        guild_ids=GUILD_IDS
+    )
+    @commands.has_permissions(administrator=True)
+    async def addscore(
+        self,
+        inter: disnake.ApplicationCommandInteraction,
+        участник: disnake.Member = commands.Param(description="Пользователь, которому нужно добавить очки"),
+        количество: int = commands.Param(description="Количество очков для добавления", gt=0)
+    ):
+        """Команда для добавления очков пользователю"""
+        user_id = str(участник.id)
+        
+        # Обновляем счет пользователя
+        if user_id not in self.score_data:
+            self.score_data[user_id] = 0
+        
+        self.score_data[user_id] += количество
+        save_score_data(self.score_data)
+        
+        embed = disnake.Embed(
+            title="Очки добавлены",
+            description=f"Пользователю {участник.mention} добавлено {количество} очков.\nТекущий счет: {self.score_data[user_id]}",
+            color=disnake.Color.green()
+        )
+        
+        await inter.response.send_message(embed=embed, ephemeral=True)
+    
+    @commands.slash_command(
+        name="removescore",
+        description="Удалить очки у пользователя (только для администраторов)",
+        guild_ids=GUILD_IDS
+    )
+    @commands.has_permissions(administrator=True)
+    async def removescore(
+        self,
+        inter: disnake.ApplicationCommandInteraction,
+        участник: disnake.Member = commands.Param(description="Пользователь, у которого нужно убрать очки"),
+        количество: int = commands.Param(description="Количество очков для удаления", gt=0)
+    ):
+        """Команда для удаления очков у пользователя"""
+        user_id = str(участник.id)
+        
+        # Проверяем наличие пользователя в данных
+        if user_id not in self.score_data:
+            self.score_data[user_id] = 0
+        
+        # Проверяем, чтобы счет не стал отрицательным
+        if self.score_data[user_id] < количество:
+            self.score_data[user_id] = 0
+        else:
+            self.score_data[user_id] -= количество
+        
+        save_score_data(self.score_data)
+        
+        embed = disnake.Embed(
+            title="Очки удалены",
+            description=f"У пользователя {участник.mention} удалено {количество} очков.\nТекущий счет: {self.score_data[user_id]}",
+            color=disnake.Color.red()
+        )
+        
+        await inter.response.send_message(embed=embed, ephemeral=True)
+    
+    @commands.slash_command(
+        name="shop",
+        description="Открыть магазин товаров",
+        guild_ids=GUILD_IDS
+    )
+    async def shop(self, inter: disnake.ApplicationCommandInteraction):
+        """Команда для открытия магазина товаров"""
+        user_id = str(inter.author.id)
+        user_score = self.get_user_score(user_id)
+        
+        # Создаем встраиваемое сообщение для магазина
+        embed = disnake.Embed(
+            title="Магазин товаров",
+            description=f"Ваш текущий счет: {user_score}",
+            color=disnake.Color.blue()
+        )
+        
+        # Добавляем информацию о доступных товарах
+        embed.add_field(
+            name="Повышение (10000 очков)",
+            value="Заменяет роль на более высокую\nПрименяется единоразово",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Кастомная роль (2500 очков)",
+            value="Создает свою собственную кастомную роль с выбранным названием и цветом\nПрименяется единоразово",
+            inline=False
+        )
+        
+        # Создаем кнопки для покупки
+        view = disnake.ui.View()
+        
+        # Кнопка для покупки повышения
+        promotion_button = disnake.ui.Button(
+            style=disnake.ButtonStyle.primary,
+            label="Купить повышение",
+            custom_id="buy_promotion",
+            disabled=user_score < 10000 or self.has_made_purchase(user_id, "promotion")
+        )
+        view.add_item(promotion_button)
+        
+        # Кнопка для покупки кастомной роли
+        custom_role_button = disnake.ui.Button(
+            style=disnake.ButtonStyle.success,
+            label="Купить кастомную роль",
+            custom_id="buy_custom_role",
+            disabled=user_score < 2500 or self.has_made_purchase(user_id, "custom_role")
+        )
+        view.add_item(custom_role_button)
+        
+        await inter.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    @commands.Cog.listener("on_button_click")
+    async def on_shop_button_click(self, inter: disnake.MessageInteraction):
+        """Обработчик нажатия на кнопки магазина"""
+        user_id = str(inter.author.id)
+        
+        # Проверяем, что это кнопка из магазина
+        if inter.component.custom_id == "buy_promotion":
+            # Покупка повышения
+            if self.get_user_score(user_id) < 10000:
+                await inter.response.send_message("У вас недостаточно очков для этой покупки!", ephemeral=True)
+                return
+            
+            if self.has_made_purchase(user_id, "promotion"):
+                await inter.response.send_message("Вы уже приобрели это повышение!", ephemeral=True)
+                return
+            
+            # Получаем участника на сервере
+            member = inter.guild.get_member(int(user_id))
+            if not member:
+                await inter.response.send_message("Не удалось получить информацию о вашем профиле на сервере", ephemeral=True)
+                return
+            
+            # Ищем роли для замены
+            old_role = inter.guild.get_role(1341275045502259230)
+            new_role = inter.guild.get_role(1341273303880437760)
+            
+            if not old_role or not new_role:
+                await inter.response.send_message("Не удалось найти необходимые роли. Обратитесь к администратору.", ephemeral=True)
+                return
+            
+            # Проверяем, есть ли у пользователя роль, которую нужно заменить
+            if old_role not in member.roles:
+                await inter.response.send_message("У вас нет роли, которую можно повысить!", ephemeral=True)
+                return
+            
+            try:
+                # Удаляем старую роль и добавляем новую
+                await member.remove_roles(old_role)
+                await member.add_roles(new_role)
+                
+                # Списываем очки
+                self.score_data[user_id] -= 10000
+                save_score_data(self.score_data)
+                
+                # Записываем покупку
+                self.add_purchase(user_id, "promotion")
+                
+                await inter.response.send_message(f"Поздравляем! Вы успешно приобрели повышение роли. С вашего счета списано 10000 очков.", ephemeral=True)
+            except Exception as e:
+                print(f"Ошибка при изменении ролей: {e}")
+                await inter.response.send_message("Произошла ошибка при изменении ролей. Обратитесь к администратору.", ephemeral=True)
+        
+        elif inter.component.custom_id == "buy_custom_role":
+            # Покупка кастомной роли
+            if self.get_user_score(user_id) < 2500:
+                await inter.response.send_message("У вас недостаточно очков для этой покупки!", ephemeral=True)
+                return
+            
+            if self.has_made_purchase(user_id, "custom_role"):
+                await inter.response.send_message("Вы уже приобрели кастомную роль!", ephemeral=True)
+                return
+            
+            # Создаем модальное окно для ввода данных о роли
+            modal = disnake.ui.Modal(
+                title="Создание кастомной роли",
+                custom_id="custom_role_modal",
+                components=[
+                    disnake.ui.TextInput(
+                        label="Название роли",
+                        placeholder="Введите название для вашей роли",
+                        custom_id="role_name",
+                        style=disnake.TextInputStyle.short,
+                        max_length=32
+                    ),
+                    disnake.ui.TextInput(
+                        label="HEX код цвета (опционально)",
+                        placeholder="Например: #FF5733",
+                        custom_id="role_color",
+                        style=disnake.TextInputStyle.short,
+                        max_length=7,
+                        required=False
+                    )
+                ]
+            )
+            
+            await inter.response.send_modal(modal)
+    
+    @commands.Cog.listener("on_modal_submit")
+    async def on_custom_role_modal_submit(self, inter: disnake.ModalInteraction):
+        """Обработчик отправки формы для создания кастомной роли"""
+        if inter.custom_id == "custom_role_modal":
+            user_id = str(inter.author.id)
+            
+            # Получаем введенные данные
+            role_name = inter.text_values["role_name"]
+            role_color_hex = inter.text_values["role_color"]
+            
+            # Проверяем наличие достаточного количества очков
+            if self.get_user_score(user_id) < 2500:
+                await inter.response.send_message("У вас недостаточно очков для этой покупки!", ephemeral=True)
+                return
+            
+            # Проверяем, что пользователь еще не покупал кастомную роль
+            if self.has_made_purchase(user_id, "custom_role"):
+                await inter.response.send_message("Вы уже приобрели кастомную роль!", ephemeral=True)
+                return
+            
+            # Определяем цвет роли
+            if role_color_hex and role_color_hex.startswith("#") and len(role_color_hex) == 7:
+                try:
+                    # Преобразуем HEX цвет в int для disnake
+                    color = int(role_color_hex[1:], 16)
+                except ValueError:
+                    # Если указан неверный формат, используем случайный цвет
+                    color = random.randint(0, 0xFFFFFF)
+            else:
+                # Если цвет не указан, используем случайный
+                color = random.randint(0, 0xFFFFFF)
+            
+            try:
+                # Создаем новую роль
+                new_role = await inter.guild.create_role(
+                    name=role_name,
+                    color=disnake.Color(color),
+                    reason=f"Кастомная роль для {inter.author.name} (ID: {user_id})"
+                )
+                
+                # Добавляем роль пользователю
+                await inter.author.add_roles(new_role)
+                
+                # Списываем очки
+                self.score_data[user_id] -= 2500
+                save_score_data(self.score_data)
+                
+                # Записываем покупку
+                self.add_purchase(user_id, "custom_role")
+                
+                await inter.response.send_message(f"Поздравляем! Вы успешно создали кастомную роль **{role_name}**. С вашего счета списано 2500 очков.", ephemeral=True)
+            except Exception as e:
+                print(f"Ошибка при создании кастомной роли: {e}")
+                await inter.response.send_message("Произошла ошибка при создании кастомной роли. Обратитесь к администратору.", ephemeral=True)
+
 # Обработка ошибок
 @bot.event
 async def on_slash_command_error(inter: disnake.ApplicationCommandInteraction, error):
@@ -560,6 +918,7 @@ async def on_slash_command_error(inter: disnake.ApplicationCommandInteraction, e
 
 # Регистрация когов
 bot.add_cog(FriendCommands(bot))
+bot.add_cog(ScoreCommands(bot))
 
 # Запуск бота
 if __name__ == "__main__":
